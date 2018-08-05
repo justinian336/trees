@@ -112,7 +112,7 @@ object KDTree {
   }
 
   def median(data: List[Point], axis: Int)(mapper: (Point) => BigDecimal): BigDecimal = {
-    val mapped = data.sortBy(sortByAxis(axis)).map(mapper)
+    val mapped = data.sortBy(sortByAxis(axis)).par.map(mapper)
     if(mapped.length % 2 == 0){
       mapped(mapped.size/2 - 1) + (mapped(mapped.size - mapped.size/2) - mapped(mapped.size/2 - 1))/2.0
     } else{

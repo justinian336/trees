@@ -2,6 +2,8 @@ package distance
 
 import distance.Hello.data
 
+import scala.concurrent.{ExecutionContext, Future}
+
 sealed trait KDTree[T]{
 
   val upperBoundaries: List[Option[BigDecimal]]
@@ -38,10 +40,10 @@ case class Node[T](axis: Int,
     if(sortByAxis(axis)(target) <= splitValue){
 
       val updatedBest = left.nnSearch(m, target, currentBest)
-      if(
-        !ballWithinBounds(target, left.upperBoundaries, left.lowerBoundaries, updatedBest) &&
-        boundsOverlapBall(m, target, right.upperBoundaries, right.lowerBoundaries, updatedBest)
-      ){
+      val ballOutsideBounds = !ballWithinBounds(m, target, left.upperBoundaries, left.lowerBoundaries, updatedBest)
+//      val boundsAndBallOverlap = boundsOverlapBall(m, target, right.upperBoundaries, right.lowerBoundaries, updatedBest)
+//      if(ballOutsideBounds && boundsAndBallOverlap){
+      if(ballOutsideBounds){
         right.nnSearch(m, target, updatedBest)
       } else updatedBest
 
@@ -49,13 +51,12 @@ case class Node[T](axis: Int,
     } else {
 
       val updatedBest = right.nnSearch(m, target, currentBest)
-      if(
-        !ballWithinBounds(target, right.upperBoundaries, right.lowerBoundaries, updatedBest) &&
-          boundsOverlapBall(m, target, left.upperBoundaries, left.lowerBoundaries, updatedBest)
-      ){
+      val ballOutsideBounds = !ballWithinBounds(m, target, right.upperBoundaries, right.lowerBoundaries, updatedBest)
+//      val boundsAndBallOverlap = boundsOverlapBall(m, target, left.upperBoundaries, left.lowerBoundaries, updatedBest)
+//      if(ballOutsideBounds && boundsAndBallOverlap){
+      if(ballOutsideBounds){
         left.nnSearch(m, target, updatedBest)
       } else updatedBest
-
     }
   }
 
@@ -86,11 +87,18 @@ case class Node[T](axis: Int,
 
 object KDTree {
 
-  def grow(data: List[Point], axis: Int = getNextAxis(data), upperBoundaries: List[Option[BigDecimal]] = List(None, None), lowerBoundaries: List[Option[BigDecimal]] = List(None, None)): KDTree[Point] ={
+  def grow(data: List[Point],
+           axis: Int = getNextAxis(data),
+           upperBoundaries: List[Option[BigDecimal]] = List(None, None),
+           lowerBoundaries: List[Option[BigDecimal]] = List(None, None))
+          (implicit ec: ExecutionContext): Future[KDTree[Point]] ={
 
     data match{
       case Nil => throw new Exception("No data to index.")
-      case point::Nil => Leaf(point, upperBoundaries, lowerBoundaries)
+      case point::Nil =>
+        Future.successful(
+        Leaf(point, upperBoundaries, lowerBoundaries)
+      )
       case l: List[Point] =>
         val split = median(l, axis)(mapperForAxis(axis))
 
@@ -100,18 +108,26 @@ object KDTree {
         val leftUpperBoundaries = updateBoundary(upperBoundaries, split, axis)
         val rightLowerBoundaries = updateBoundary(lowerBoundaries, split, axis)
 
-        Node(
-          axis,
-          split,
-          upperBoundaries,
-          lowerBoundaries,
-          grow(leftData, getNextAxis(leftData), leftUpperBoundaries, lowerBoundaries),
-          grow(rightData, getNextAxis(rightData), upperBoundaries, rightLowerBoundaries)
-        )
+        val leftSon = grow(leftData, getNextAxis(leftData), leftUpperBoundaries, lowerBoundaries)
+        val rightSon = grow(rightData, getNextAxis(rightData), upperBoundaries, rightLowerBoundaries)
+
+        for{
+          left <- leftSon
+          right <- rightSon
+        } yield {
+          Node(
+            axis,
+            split,
+            upperBoundaries,
+            lowerBoundaries,
+            left,
+            right
+          )
+        }
     }
   }
 
-  def median(data: List[Point], axis: Int)(mapper: (Point) => BigDecimal): BigDecimal = {
+  def median(data: List[Point], axis: Int)(mapper: Point => BigDecimal): BigDecimal = {
     val mapped = data.sortBy(sortByAxis(axis)).par.map(mapper)
     if(mapped.length % 2 == 0){
       mapped(mapped.size/2 - 1) + (mapped(mapped.size - mapped.size/2) - mapped(mapped.size/2 - 1))/2.0
@@ -120,18 +136,18 @@ object KDTree {
     }
   }
 
-  private def mapperForAxis(axis: Int): (Point) => BigDecimal = {
+  private def mapperForAxis(axis: Int): Point => BigDecimal = {
     if(axis == 0) (p: Point) => p.x
     else (p: Point) => p.y
   }
 
-  private def filterByAxis(currentAxis: Int, split: BigDecimal, left: Boolean): (Point) => Boolean = {
+  private def filterByAxis(currentAxis: Int, split: BigDecimal, left: Boolean): Point => Boolean = {
     if(currentAxis == 0) {
-      (p: Point) =>
+      p: Point =>
         if(left) p.x <= split
         else p.x > split
     } else {
-      (p: Point) =>
+      p: Point =>
         if(left) p.y <= split
         else p.y > split
     }
@@ -150,20 +166,26 @@ object KDTree {
     else (p: Point) => p.y
   }
 
-  def ballWithinBounds(query: Point,
-                               upperBound: List[Option[BigDecimal]],
-                               lowerBound: List[Option[BigDecimal]],
-                               mNN: List[(Point, BigDecimal)]): Boolean = {
-    val flatUpperBound = upperBound.flatten
-    val flatLowerBound = lowerBound.flatten
+  def ballWithinBounds(m: Int,
+                       query: Point,
+                       upperBound: List[Option[BigDecimal]],
+                       lowerBound: List[Option[BigDecimal]],
+                       mNN: List[(Point, BigDecimal)]): Boolean = {
 
-    if(flatUpperBound.size == 2 && flatLowerBound.size == 2){
+    mNN match{
+      case _: List[(Point, BigDecimal)] if mNN.size < m => false
+      case _: List[(Point, BigDecimal)] =>
 
-      // Try to terminate early
-      if(query.x.coordinateDistance(flatLowerBound.head) <= mNN.head._2 || query.x.coordinateDistance(flatUpperBound.head) <= mNN.head._2) true
-      else query.y.coordinateDistance(flatLowerBound.tail.head) <= mNN.head._2 || query.y.coordinateDistance(flatUpperBound.tail.head) <= mNN.head._2
+        val mDistance = mNN.head._2
 
-    } else false
+        if(
+          lowerBound.head.exists(query.x.coordinateDistance(_) <= mDistance) ||
+            upperBound.head.exists(query.x.coordinateDistance(_) <= mDistance)) false
+        else if(
+          lowerBound.tail.head.exists(query.y.coordinateDistance(_) <= mDistance) ||
+            upperBound.tail.head.exists(query.y.coordinateDistance(_) <= mDistance) ) false
+        else true
+    }
   }
 
   def boundsOverlapBall(m: Int,
@@ -175,16 +197,19 @@ object KDTree {
     if(mNN.size < m) true
     else {
 
-      val sum = BigDecimal(0) + {
-        if(lowerBound.head.exists(_ > query.x)) lowerBound.head.map(query.x.coordinateDistance).getOrElse(0)
-        else if(upperBound.head.exists( _ < query.x)) upperBound.head.map(query.x.coordinateDistance).getOrElse(0)
-        else 0
-      } + {
-        if(lowerBound.tail.head.exists(_ > query.y)) lowerBound.tail.head.map(query.y.coordinateDistance).getOrElse(0)
-        else if(upperBound.tail.head.exists(_ < query.y)) upperBound.tail.head.map(query.y.coordinateDistance).getOrElse(0)
-        else 0
+
+
+      val sum: Option[BigDecimal] =  {
+        if(lowerBound.head.exists(_ > query.x)) lowerBound.head.map(query.x.coordinateDistance)
+        else if(upperBound.head.exists( _ < query.x)) upperBound.head.map(query.x.coordinateDistance)
+        else None
+      }.flatMap{cumSum =>
+        if(lowerBound.tail.head.exists(_ > query.y)) lowerBound.tail.head.map(query.y.coordinateDistance).map(_ + cumSum)
+        else if(upperBound.tail.head.exists(_ < query.y)) upperBound.tail.head.map(query.y.coordinateDistance).map(_ + cumSum)
+        else None
       }
-      scala.math.pow(sum.toDouble, (1/BigDecimal(2)).toDouble) > mNN.head._2
+
+      sum.forall{_ > mNN.head._2}
     }
   }
 
@@ -200,7 +225,7 @@ object KDTree {
   implicit class Coordinate(t1: BigDecimal){
 
     def coordinateDistance(other: BigDecimal): BigDecimal = {
-      (t1 - other).pow(2)
+      (t1 - other).abs
     }
 
   }

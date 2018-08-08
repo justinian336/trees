@@ -38,7 +38,7 @@ object Point{
 object Hello extends App {
   val query: Point = Point(0,100)
   val m: Int = 50
-  val n: Int = 2000000
+  val n: Int = 200000
 
   val (data, _) = time("Generate data"){
     (1 to n)

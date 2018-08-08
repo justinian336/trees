@@ -2,6 +2,7 @@ package distance
 
 import distance.Hello.data
 
+import scala.collection.mutable
 import scala.concurrent.{ExecutionContext, Future}
 
 sealed trait KDTree[T]{
@@ -40,23 +41,25 @@ case class Node[T](axis: Int,
     if(sortByAxis(axis)(target) <= splitValue){
 
       val updatedBest = left.nnSearch(m, target, currentBest)
-      val ballOutsideBounds = !ballWithinBounds(m, target, left.upperBoundaries, left.lowerBoundaries, updatedBest)
-//      val boundsAndBallOverlap = boundsOverlapBall(m, target, right.upperBoundaries, right.lowerBoundaries, updatedBest)
-//      if(ballOutsideBounds && boundsAndBallOverlap){
-      if(ballOutsideBounds){
+
+      if(ballWithinBounds(m, target, left.upperBoundaries, left.lowerBoundaries, updatedBest)){
+        updatedBest
+      } else {
         right.nnSearch(m, target, updatedBest)
-      } else updatedBest
+      }
 
 //  Search right first, then right
     } else {
 
       val updatedBest = right.nnSearch(m, target, currentBest)
       val ballOutsideBounds = !ballWithinBounds(m, target, right.upperBoundaries, right.lowerBoundaries, updatedBest)
-//      val boundsAndBallOverlap = boundsOverlapBall(m, target, left.upperBoundaries, left.lowerBoundaries, updatedBest)
-//      if(ballOutsideBounds && boundsAndBallOverlap){
-      if(ballOutsideBounds){
+
+      if(ballWithinBounds(m, target, left.upperBoundaries, left.lowerBoundaries, updatedBest)){
+        updatedBest
+      } else {
         left.nnSearch(m, target, updatedBest)
-      } else updatedBest
+      }
+
     }
   }
 
@@ -185,31 +188,6 @@ object KDTree {
           lowerBound.tail.head.exists(query.y.coordinateDistance(_) <= mDistance) ||
             upperBound.tail.head.exists(query.y.coordinateDistance(_) <= mDistance) ) false
         else true
-    }
-  }
-
-  def boundsOverlapBall(m: Int,
-                        query: Point,
-                        upperBound: List[Option[BigDecimal]],
-                        lowerBound: List[Option[BigDecimal]],
-                        mNN: List[(Point, BigDecimal)]): Boolean = {
-
-    if(mNN.size < m) true
-    else {
-
-
-
-      val sum: Option[BigDecimal] =  {
-        if(lowerBound.head.exists(_ > query.x)) lowerBound.head.map(query.x.coordinateDistance)
-        else if(upperBound.head.exists( _ < query.x)) upperBound.head.map(query.x.coordinateDistance)
-        else None
-      }.flatMap{cumSum =>
-        if(lowerBound.tail.head.exists(_ > query.y)) lowerBound.tail.head.map(query.y.coordinateDistance).map(_ + cumSum)
-        else if(upperBound.tail.head.exists(_ < query.y)) upperBound.tail.head.map(query.y.coordinateDistance).map(_ + cumSum)
-        else None
-      }
-
-      sum.forall{_ > mNN.head._2}
     }
   }
 

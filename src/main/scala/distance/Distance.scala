@@ -1,5 +1,8 @@
 package distance
 
+import java.util.UUID
+
+import distance.Distance.{Euclidean, Manhattan}
 import shapeless.ops.hlist.{LeftFolder, Mapper, Zip, ZipConst}
 import shapeless.{::, Generic, HList, HNil, Nat, Poly1, Poly2}
 
@@ -39,19 +42,24 @@ object Distance {
     }
   }
 
-  trait Euclidean[T <: Euclidean[T]]{self:T =>
+  trait Generic[T]{self:T=>
+    def repr[H <: HList]()(implicit gen: Generic.Aux[T, H]): H = {
+      gen.to(this)
+    }
+  }
 
-    def distance[H<: HList, K<:HList, L<: HList, N<:Nat](other: T)(
+  trait Euclidean[T] extends Generic[T]{self:T =>
+
+    def distance[H<: HList, K<:HList, L<: HList, N<:Nat](other: Euclidean[T])(
       implicit gen: Generic.Aux[T, H],
       zipper: Zip.Aux[H::H::HNil, L],
       diffMapper: Mapper.Aux[sqDiffMap.type, L, H],
       folder: LeftFolder.Aux[H, BigDecimal, reducerPoly.type, BigDecimal]
     ): BigDecimal = {
-      val repr = gen.to(this)
 
       BigDecimal(scala.math.pow(
         repr
-          .zip(gen.to(other))
+          .zip(other.repr)
           .map(sqDiffMap)
           .foldLeft(BigDecimal(0))(reducerPoly).toDouble
         ,
@@ -151,5 +159,31 @@ object Distance {
           + cos(longitude)*cos(other.longitude)*cos((longitude - other.longitude).abs)
       )
     }
+  }
+}
+
+// Note to self: not all dissimilarity measures are useful for implementing the k-d tree algorithm in FBF (1976)
+// The dissimilarity measure must satisfy that the difference along a single axis is ALWAYS less or equal than
+// the total dissimilarity. For example, Euclidean distance doesn't cut it, but Manhattan distance does.
+case class Point(x: BigDecimal, y: BigDecimal) extends Euclidean[Point]{
+  val id: UUID = UUID.randomUUID()
+
+  override def canEqual(that: Any): Boolean = {
+    that match{
+      case other: Point => id.equals(other.id)
+      case _ => false
+    }
+  }
+}
+case class StrPoint(x: String, y: String)
+
+object Point{
+  val seed = 1000
+  val rnd = new scala.util.Random(seed)
+
+  def random(xRange: Range, yRange: Range) = {
+    val x = BigDecimal(rnd.nextDouble()*(xRange.end - xRange.start) + xRange.start)
+    val y = BigDecimal(rnd.nextDouble()*(yRange.end - yRange.start) + yRange.start)
+    Point(x, y)
   }
 }

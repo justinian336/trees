@@ -1,41 +1,15 @@
-package distance
-
 import java.util.UUID
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent._
 import scala.concurrent.duration._
 import distance.Distance.Manhattan
+import distance.Point
+import tree.KDTree
 
 import scala.concurrent.Future
 
-// Note to self: not all dissimilarity measures are useful for implementing the k-d tree algorithm in FBF (1976)
-// The dissimilarity measure must satisfy that the difference along a single axis is ALWAYS less or equal than
-// the total dissimilarity. For example, Euclidean distance doesn't cut it, but Manhattan distance does.
-case class Point(x: BigDecimal, y: BigDecimal) extends Manhattan[Point]{
-  val id: UUID = UUID.randomUUID()
-
-  override def canEqual(that: Any): Boolean = {
-    that match{
-      case other: Point => id.equals(other.id)
-      case _ => false
-    }
-  }
-}
-case class StrPoint(x: String, y: String)
-
-object Point{
-  val seed = 1000
-  val rnd = new scala.util.Random(seed)
-
-  def random(xRange: Range, yRange: Range) = {
-    val x = BigDecimal(rnd.nextDouble()*(xRange.end - xRange.start) + xRange.start)
-    val y = BigDecimal(rnd.nextDouble()*(yRange.end - yRange.start) + yRange.start)
-    Point(x, y)
-  }
-}
-
-object Hello extends App {
+object Example extends App {
   val query: Point = Point(0,100)
   val m: Int = 50
   val n: Int = 200000

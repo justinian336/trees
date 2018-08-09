@@ -1,32 +1,37 @@
-package distance
+package tree
 
-import distance.Hello.data
+import distance.Distance.Euclidean
+import distance.Point
+import shapeless.{HList, Nat, the}
+import shapeless.ops.hlist
+import shapeless.ops.hlist.At
 
-import scala.collection.mutable
 import scala.concurrent.{ExecutionContext, Future}
 
-sealed trait KDTree[T]{
+sealed trait KDTree[T <: Euclidean[T]]{
 
   val upperBoundaries: List[Option[BigDecimal]]
   val lowerBoundaries: List[Option[BigDecimal]]
 
-  def nnSearch(m: Int, target: Point, currentBest: List[(Point, BigDecimal)] = Nil): List[(Point, BigDecimal)]
-  def traverse(point: Point): Leaf[T]
+  def nnSearch(m: Int, target: T, currentBest: List[(T, BigDecimal)] = Nil): List[(T, BigDecimal)]
+  def traverse(point: T): Leaf[T]
 }
 
-case class Leaf[T](point: Point, upperBoundaries: List[Option[BigDecimal]], lowerBoundaries: List[Option[BigDecimal]]) extends KDTree[T]{
+case class Leaf[T <: Euclidean[T]](point: T,
+                                   upperBoundaries: List[Option[BigDecimal]],
+                                   lowerBoundaries: List[Option[BigDecimal]]) extends KDTree[T]{
 
-  override def nnSearch(m: Int, target: Point, currentBest: List[(Point, BigDecimal)]): List[(Point, BigDecimal)] = {
+  override def nnSearch(m: Int, target: T, currentBest: List[(T, BigDecimal)]): List[(T, BigDecimal)] = {
     val distanceToTarget: BigDecimal = target.distance(point)
 //   Take the m points with the shortest distances and then sort the list in descending order, so that the relevant neighbor is
 //    in the head of the list.
     ((point, distanceToTarget)::currentBest).sortBy{case (_, dist) => dist}.take(m).reverse
   }
 
-  override def traverse(point: Point): Leaf[T] = this
+  override def traverse(point: T): Leaf[T] = this
 }
 
-case class Node[T](axis: Int,
+case class Node[T <: Euclidean[T]](axis: Nat,
                    splitValue: BigDecimal,
                    upperBoundaries: List[Option[BigDecimal]],
                    lowerBoundaries: List[Option[BigDecimal]],
@@ -35,7 +40,7 @@ case class Node[T](axis: Int,
 
   import KDTree._
 
-  def nnSearch(m: Int, target: Point, currentBest: List[(Point, BigDecimal)] = Nil): List[(Point, BigDecimal)] = {
+  def nnSearch(m: Int, target: T, currentBest: List[(T, BigDecimal)] = Nil): List[(T, BigDecimal)] = {
 
 //  Search left first, then right
     if(sortByAxis(axis)(target) <= splitValue){
@@ -52,7 +57,6 @@ case class Node[T](axis: Int,
     } else {
 
       val updatedBest = right.nnSearch(m, target, currentBest)
-      val ballOutsideBounds = !ballWithinBounds(m, target, right.upperBoundaries, right.lowerBoundaries, updatedBest)
 
       if(ballWithinBounds(m, target, left.upperBoundaries, left.lowerBoundaries, updatedBest)){
         updatedBest
@@ -64,22 +68,21 @@ case class Node[T](axis: Int,
   }
 
 
-  def traverse(point: Point): Leaf[T] = {
-    if(lowerThanByAxis(point, axis, splitValue)) traverseOrReturn(point, left) else traverseOrReturn(point, right)
+  def traverse[L <: HList, N <: Nat](point: T)
+                        (implicit at: hlist.At.Aux[L, Nat, BigDecimal]): Leaf[T] = {
+
+    val repr: L = point.repr()
+    if(lowerThanByAxis(repr, axis, splitValue)) traverseOrReturn(point, left) else traverseOrReturn(point, right)
   }
 
-  private def nodesList(): List[KDTree[T]] = {
-    List(left, right)
+  private def lowerThanByAxis[N <: Nat](pointRepr: HList, axis: N, split: BigDecimal)
+                                           (implicit at: hlist.At.Aux[L, Nat, BigDecimal]): Boolean = {
+
+    at(pointRepr, axis) <= split
+
   }
 
-  private def lowerThanByAxis(point: Point, axis: Int, split: BigDecimal) = {
-    if(axis == 0)
-      point.x <= split
-    else
-      point.y <= split
-  }
-
-  private def traverseOrReturn[L <: KDTree[T]](point: Point, nextNode: L): Leaf[T] = {
+  private def traverseOrReturn[L <: KDTree[T]](point: T, nextNode: L): Leaf[T] = {
     nextNode match{
       case leaf: Leaf[T] => leaf
       case node: Node[T] => node.traverse(point)
@@ -90,11 +93,14 @@ case class Node[T](axis: Int,
 
 object KDTree {
 
-  def grow(data: List[Point],
-           axis: Int = getNextAxis(data),
+  def grow[T <: Euclidean[T], N <: Nat](data: List[T],
+           axis: Option[N] = None,
            upperBoundaries: List[Option[BigDecimal]] = List(None, None),
            lowerBoundaries: List[Option[BigDecimal]] = List(None, None))
-          (implicit ec: ExecutionContext): Future[KDTree[Point]] ={
+          (implicit ec: ExecutionContext): Future[KDTree[T]] ={
+
+    val nextAxis = getNextAxis()
+//    TODO:Use the nextAxis value above for the expressions below instead of simply axis
 
     data match{
       case Nil => throw new Exception("No data to index.")
@@ -102,11 +108,11 @@ object KDTree {
         Future.successful(
         Leaf(point, upperBoundaries, lowerBoundaries)
       )
-      case l: List[Point] =>
+      case l: List[T] =>
         val split = median(l, axis)(mapperForAxis(axis))
 
-        val leftData: List[Point] = data.filter(filterByAxis(axis, split, true))
-        val rightData: List[Point] = data.filter(filterByAxis(axis, split, false))
+        val leftData: List[T] = data.filter(filterByAxis(axis, split, true))
+        val rightData: List[T] = data.filter(filterByAxis(axis, split, false))
 
         val leftUpperBoundaries = updateBoundary(upperBoundaries, split, axis)
         val rightLowerBoundaries = updateBoundary(lowerBoundaries, split, axis)
@@ -130,7 +136,7 @@ object KDTree {
     }
   }
 
-  def median(data: List[Point], axis: Int)(mapper: Point => BigDecimal): BigDecimal = {
+  def median[T <: Euclidean[T]](data: List[T], axis: Nat)(mapper: T => BigDecimal): BigDecimal = {
     val mapped = data.sortBy(sortByAxis(axis)).par.map(mapper)
     if(mapped.length % 2 == 0){
       mapped(mapped.size/2 - 1) + (mapped(mapped.size - mapped.size/2) - mapped(mapped.size/2 - 1))/2.0
@@ -139,21 +145,17 @@ object KDTree {
     }
   }
 
-  private def mapperForAxis(axis: Int): Point => BigDecimal = {
-    if(axis == 0) (p: Point) => p.x
-    else (p: Point) => p.y
+  private def mapperForAxis[T <: Euclidean[T], N<: Nat](axis: N)
+                                                       (implicit at: At.Aux[T, N, BigDecimal]): T => BigDecimal = {
+    p: T => at(p, axis)
   }
 
-  private def filterByAxis(currentAxis: Int, split: BigDecimal, left: Boolean): Point => Boolean = {
-    if(currentAxis == 0) {
-      p: Point =>
-        if(left) p.x <= split
-        else p.x > split
-    } else {
-      p: Point =>
-        if(left) p.y <= split
-        else p.y > split
-    }
+  private def filterByAxis[T <: Euclidean[T], N <: Nat](currentAxis: N, split: BigDecimal, left: Boolean)
+                                    (implicit at: At.Aux[T, N, BigDecimal]): T => Boolean = {
+    p: T =>
+      val coordinate = at(p, currentAxis)
+      if(left) coordinate <= split
+      else coordinate > split
   }
 
   private def updateBoundary(boundary: List[Option[BigDecimal]], splitValue: BigDecimal, dimension: Int): List[Option[BigDecimal]] = {
@@ -164,20 +166,22 @@ object KDTree {
     }
   }
 
-  def sortByAxis(currentAxis: Int) = {
-    if(currentAxis == 0) (p: Point) => p.x
-    else (p: Point) => p.y
+  def sortByAxis[T, N<:Nat](currentAxis: Nat)(
+                                           implicit at: At.Aux[T, N, BigDecimal]
+  ) = {
+    p: T => at(p, currentAxis)
+
   }
 
-  def ballWithinBounds(m: Int,
-                       query: Point,
+  def ballWithinBounds[T <: Euclidean[T]](m: Int,
+                       query: T,
                        upperBound: List[Option[BigDecimal]],
                        lowerBound: List[Option[BigDecimal]],
-                       mNN: List[(Point, BigDecimal)]): Boolean = {
+                       mNN: List[(T, BigDecimal)]): Boolean = {
 
     mNN match{
-      case _: List[(Point, BigDecimal)] if mNN.size < m => false
-      case _: List[(Point, BigDecimal)] =>
+      case _: List[(T, BigDecimal)] if mNN.size < m => false
+      case _: List[(T, BigDecimal)] =>
 
         val mDistance = mNN.head._2
 
@@ -191,7 +195,7 @@ object KDTree {
     }
   }
 
-  def getNextAxis(data: List[Point]): Int = {
+  def getNextAxis[T <: Euclidean[T]](data: List[T]): Int = {
     // Choose the dimension with the highest variance
     val varX = data.maxBy(_.x).x - data.minBy(_.x).x
     val varY = data.maxBy(_.y).y - data.minBy(_.y).y

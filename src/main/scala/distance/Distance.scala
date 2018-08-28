@@ -1,53 +1,35 @@
 package distance
 
+import java.util.UUID
+
+import distance.Distance.{GenericDataPoint, Manhattan}
 import shapeless.ops.hlist.{LeftFolder, Mapper, Zip, ZipConst}
-import shapeless.{::, Generic, HList, HNil, Nat, Poly1, Poly2}
+import shapeless.ops.tuple.ToList
+import shapeless.{::, Generic, HList, HNil}
+import generic.GenericUtils._
 
 import scala.math.{acos, cos, sin}
 
 object Distance {
-  object diffMap extends Poly1{
-    type ZippedType = (BigDecimal, Int)
-    implicit def atBigDecimal: Case.Aux[((BigDecimal, Int), BigDecimal), BigDecimal] = at{case ((x, k), y) =>
-      (x - y).abs.pow(k)
+
+  trait GenericDataPoint[T]{self:T=>
+    def repr[H <: HList]()(implicit gen: Generic.Aux[T, H]): H = {
+      gen.to(this)
+    }
+
+    def toList(implicit toList: ToList.Aux[T, BigDecimal, List[BigDecimal]]) = {
+      toList(self)
     }
   }
 
-  object sqDiffMap extends Poly1{
-    type ZippedType = (BigDecimal, Int)
-    implicit def atBigDecimal: Case.Aux[(BigDecimal, BigDecimal), BigDecimal] = at{case (x, y) =>
-      (x - y).pow(2)
-    }
-  }
+  trait Euclidean[T] extends GenericDataPoint[T]{self:T =>
 
-  object absDiffMap extends Poly1{
-    type ZippedType = (BigDecimal, Int)
-    implicit def atBigDecimal: Case.Aux[(BigDecimal, BigDecimal), BigDecimal] = at{case (x, y) =>
-      (x - y).abs
-    }
-  }
-
-  object reducerPoly extends Poly2{
-    implicit def atBigDecimal: Case.Aux[BigDecimal, BigDecimal, BigDecimal] = at{case (acc, n)=>
-      acc + n
-    }
-  }
-
-  object maxReducer extends Poly2{
-    implicit def atBigDecimal: Case.Aux[BigDecimal, BigDecimal, BigDecimal] = at{case (acc, n)=>
-      acc.max(n)
-    }
-  }
-
-  trait Euclidean[T <: Euclidean[T]]{self:T =>
-
-    def distance[H<: HList, K<:HList, L<: HList, N<:Nat](other: T)(
+    def distance[H<: HList, L<: HList](other: T)(
       implicit gen: Generic.Aux[T, H],
       zipper: Zip.Aux[H::H::HNil, L],
       diffMapper: Mapper.Aux[sqDiffMap.type, L, H],
       folder: LeftFolder.Aux[H, BigDecimal, reducerPoly.type, BigDecimal]
     ): BigDecimal = {
-      val repr = gen.to(this)
 
       BigDecimal(scala.math.pow(
         repr
@@ -61,10 +43,9 @@ object Distance {
     }
   }
 
+  trait Minkowski[T <: Minkowski[T]] extends GenericDataPoint[T]{self: T=>
 
-  trait Minkowski[T <: Minkowski[T]]{self: T=>
-
-    def distance[H<: HList, K<:HList, L<: HList, N<:Nat](other: T, p: Int)(
+    def distance[H<: HList, K<:HList, L<: HList](other: T, p: Int)(
       implicit gen: Generic.Aux[T, H],
       constZipper: ZipConst.Aux[Int, H, K],
       zipper: Zip.Aux[K::H::HNil, L],
@@ -85,9 +66,9 @@ object Distance {
     }
   }
 
-  trait Manhattan[T]{self: T=>
+  trait Manhattan[T] extends GenericDataPoint[T]{self: T=>
 
-    def distance[H<: HList, K<:HList, L<: HList, N<:Nat](other: T)(
+    def distance[H<: HList, K<:HList, L<: HList](other: T)(
       implicit gen: Generic.Aux[T, H],
       zipper: Zip.Aux[H::H::HNil, L],
       diffMapper: Mapper.Aux[absDiffMap.type, L, H],
@@ -103,7 +84,7 @@ object Distance {
 
   }
 
-  trait Chebyshev[T]{self: T=>
+  trait Chebyshev[T] extends GenericDataPoint[T]{self: T=>
 
     def distance[H <: HList, K<:HList, L<: HList](other: T)(
       implicit gen: Generic.Aux[T, H],
@@ -140,7 +121,7 @@ object Distance {
   }
 
   //TODO: WIP
-  trait Orthodromic[T]{
+  trait Orthodromic[T] extends GenericDataPoint[T]{self:T=>
 
     val latitude: Double
     val longitude: Double
@@ -151,5 +132,84 @@ object Distance {
           + cos(longitude)*cos(other.longitude)*cos((longitude - other.longitude).abs)
       )
     }
+  }
+}
+
+// Note to self: not all dissimilarity measures are useful for implementing the k-d tree algorithm in FBF (1976)
+// The dissimilarity measure must satisfy that the difference along a single axis is ALWAYS less or equal than
+// the total dissimilarity. For example, Euclidean distance doesn't cut it, but Manhattan distance does.
+case class ThreeDimensionalPoint(x: BigDecimal, y: BigDecimal, z: BigDecimal) extends Manhattan[ThreeDimensionalPoint] with Identifiable
+case class TwoDimensionalPoint(x: BigDecimal, y: BigDecimal) extends Manhattan[TwoDimensionalPoint] with Identifiable
+case class FourDimensionalPoint(d0: BigDecimal,
+                                d1: BigDecimal,
+                                d2: BigDecimal,
+                                d3: BigDecimal
+                              ) extends Manhattan[FourDimensionalPoint] with Identifiable
+
+case class StrPoint(x: String, y: String)
+
+trait Identifiable{
+  val id: UUID = {
+    val byteArray = new Array[Byte](16)
+    Point.rnd.nextBytes(byteArray)
+    UUID.nameUUIDFromBytes(byteArray)
+  }
+
+  def canEqual(that: Any): Boolean = {
+    that match{
+      case other: Identifiable => id.equals(other.id)
+      case _ => false
+    }
+  }
+}
+
+object Point{
+  val seed = 1000
+  val rnd = new scala.util.Random(seed)
+
+  private def getRandomBigDecimal(range: Range) =
+    BigDecimal(rnd.nextDouble()*(range.end - range.start) + range.start)
+
+  def random2D(range: Range) = {
+    TwoDimensionalPoint(
+      getRandomBigDecimal(range),
+      getRandomBigDecimal(range)
+    )
+  }
+
+  def random3D(range: Range) = {
+    ThreeDimensionalPoint(
+      getRandomBigDecimal(range),
+      getRandomBigDecimal(range),
+      getRandomBigDecimal(range)
+    )
+  }
+
+  def random10D(range: Range) = {
+    FourDimensionalPoint(
+      getRandomBigDecimal(range),
+      getRandomBigDecimal(range),
+      getRandomBigDecimal(range),
+      getRandomBigDecimal(range)
+    )
+  }
+
+  def findMaxRangeDimension[T <: GenericDataPoint[T]](data: List[T])(
+    implicit toList: ToList.Aux[T, BigDecimal, List[BigDecimal]]): Int = {
+
+    val (minVals: List[BigDecimal], maxVals: List[BigDecimal]) = data
+      .tail
+      .foldLeft[(List[BigDecimal], List[BigDecimal])]((data.head.toList, data.head.toList)){case (cumulative, next)=>
+      (
+        cumulative._1.zip(next.toList).map{case (x0, x1)=> x0.min(x1)},
+        cumulative._2.zip(next.toList).map{case (x0, x1)=> x0.max(x1)}
+      )
+    }
+
+    minVals
+      .zip(maxVals)
+      .map{case (x, y)=> (x-y).abs}
+      .zipWithIndex
+      .maxBy{case (value, i)=> value}._2
   }
 }

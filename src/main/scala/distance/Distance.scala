@@ -2,7 +2,7 @@ package distance
 
 import java.util.UUID
 
-import distance.Distance.{Euclidean, GenericDataPoint, Manhattan}
+import distance.Distance.{GenericDataPoint, Manhattan}
 import shapeless.ops.hlist.{LeftFolder, Mapper, Zip, ZipConst}
 import shapeless.ops.tuple.ToList
 import shapeless.{::, Generic, HList, HNil}
@@ -140,19 +140,11 @@ object Distance {
 // the total dissimilarity. For example, Euclidean distance doesn't cut it, but Manhattan distance does.
 case class ThreeDimensionalPoint(x: BigDecimal, y: BigDecimal, z: BigDecimal) extends Manhattan[ThreeDimensionalPoint] with Identifiable
 case class TwoDimensionalPoint(x: BigDecimal, y: BigDecimal) extends Manhattan[TwoDimensionalPoint] with Identifiable
-case class TenDimensionalPoint(d0: BigDecimal,
-                               d1: BigDecimal,
-                               d2: BigDecimal,
-                               d3: BigDecimal
-//                               ,
-//                               d4: BigDecimal,
-//                               d5: BigDecimal,
-//                               d6: BigDecimal,
-//                               d7: BigDecimal,
-//                               d8: BigDecimal,
-//                               d9: BigDecimal,
-//                               d10: BigDecimal,
-                              ) extends Manhattan[TenDimensionalPoint] with Identifiable
+case class FourDimensionalPoint(d0: BigDecimal,
+                                d1: BigDecimal,
+                                d2: BigDecimal,
+                                d3: BigDecimal
+                              ) extends Manhattan[FourDimensionalPoint] with Identifiable
 
 case class StrPoint(x: String, y: String)
 
@@ -194,19 +186,11 @@ object Point{
   }
 
   def random10D(range: Range) = {
-    TenDimensionalPoint(
+    FourDimensionalPoint(
       getRandomBigDecimal(range),
       getRandomBigDecimal(range),
       getRandomBigDecimal(range),
       getRandomBigDecimal(range)
-//      ,
-//      getRandomBigDecimal(range),
-//      getRandomBigDecimal(range),
-//      getRandomBigDecimal(range),
-//      getRandomBigDecimal(range),
-//      getRandomBigDecimal(range),
-//      getRandomBigDecimal(range),
-//      getRandomBigDecimal(range)
     )
   }
 

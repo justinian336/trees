@@ -1,28 +1,21 @@
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent._
 import scala.concurrent.duration._
-import distance.{Point, TenDimensionalPoint, ThreeDimensionalPoint, TwoDimensionalPoint}
+import distance.{Point, FourDimensionalPoint}
 import tree.KDTree
 
 import scala.concurrent.Future
 
 object Example extends App {
-  val query = TenDimensionalPoint(
+  val query = FourDimensionalPoint(
     0,
     10,
     5,
-    20,
-//    50,
-//    2,
-//    9,
-//    100,
-//    50,
-//    23,
-//    8
+    20
   )
 
   val m: Int = 20
-  val n: Int = 1000000
+  val n: Int = 100000
 
   val (data, _) = time("Generate data"){
     (1 to n)
@@ -57,9 +50,6 @@ object Example extends App {
   println(s"Farthest neighbor: Tree: ${treeMNN.head._1}, Brute Force: ${bruteMNN.head._1}")
   println(s"Neighbors Tree       : ${treeMNN.map(_._1.id)}")
   println(s"Neighbors Brute Force: ${bruteMNN.map(_._1.id)}")
-
-//  println(treeMNN)
-//  println(bruteMNN)
 
   def time[R](name: String)(fn: => R): (R, Double) = {
     val t0 = System.nanoTime()

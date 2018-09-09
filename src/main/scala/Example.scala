@@ -1,17 +1,20 @@
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent._
 import scala.concurrent.duration._
-import distance.{Point, FourDimensionalPoint}
+import distance.Point
+import distance.Point.DataPoint
 import tree.KDTree
 
 import scala.concurrent.Future
 
 object Example extends App {
-  val query = FourDimensionalPoint(
-    0,
-    10,
-    5,
-    20
+  val query = DataPoint(
+    List(
+      0,
+      10,
+      5,
+      20
+    )
   )
 
   val m: Int = 20
@@ -20,7 +23,7 @@ object Example extends App {
   val (data, _) = time("Generate data"){
     (1 to n)
       .par
-      .map{_=>Point.random10D(Range.inclusive(10, 2000))}
+      .map{_=>Point.randomPoint(Range.inclusive(10, 2000), 4)}
       .distinct
       .toList
   }

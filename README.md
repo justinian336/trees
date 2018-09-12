@@ -2,7 +2,9 @@
   <img src ="https://thumbs.gfycat.com/SoupyAmazingHammerkop-size_restricted.gif" />
 </p>
 
-###### Check [steezyasfuck](https://www.youtube.com/watch?v=AJvCnFqSViA&t=883s) while you read
+<h6 align="center">
+  Check <a href="https://www.youtube.com/watch?v=AJvCnFqSViA&t=883s">steezyasfuck</a> while you read
+</h6>
                                                                                 
 # Trees
 A functional implementation of k-dimensional trees in Scala for extra-fast nearest neighbor search, based on the algorithm by Friedman, Bentley and Finkel (1975).
